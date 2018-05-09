@@ -1,0 +1,35 @@
+{
+  "name": "demo",
+  "version": "0.0.1",
+  "description": "Demo for AWS services",
+  "main": "index.js",
+  "directories": {
+    "test": "test"
+  },
+  "dependencies": {},
+  "devDependencies": {
+    "aws-sdk": "^2.233.1"
+  },
+  "config": {
+    "pipelineName": "dynamo-demo",
+    "zipFile": "dynamo-demo.zip",
+    "cloudformationZipFile": "dynamo-demo-cloudformation.zip"
+  },
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1",
+    "zip": "zip -9 -q -r $npm_package_config_zipFile . -x *.git* -x *.DS_Store* -x codepipeline.json -x deploy.json -x swagger*.json -x *.yml",
+    "zip:delete": "rm $npm_package_config_zipFile",
+    "zipCloudformation": "zip $npm_package_config_cloudformationZipFile cloudformation.yml buildspec.yml",
+    "zipCloudformation:delete": "rm $npm_package_config_cloudformationZipFile",
+    "s3:put": "aws s3 cp $npm_package_config_zipFile s3://sgfaws-deploy/",
+    "cloudformation:package": "aws cloudformation package --template-file cloudformation.yml --output-template-file cloudformation-output.yml --s3-bucket sgfaws-deploy",
+    "cloudformation:deploy": "aws cloudformation deploy --template-file cloudformation-output.yml --stack-name dynamo-demo-stack --capabilities CAPABILITY_IAM",
+    "cloudformation:delete": "aws cloudformation delete-stack --stack-name dynamo-demo-stack"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git@bitbucket.org:sgf-aws/dynamo-demo.git"
+  },
+  "author": "Bryce Fosdick",
+  "license": "ISC"
+}

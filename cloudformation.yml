@@ -1,0 +1,419 @@
+Description: Dynamo Demo
+Resources:
+  RoleLambda:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: 2012-10-17
+        Statement:
+          -
+            Effect: Allow
+            Principal:
+              Service:
+                - lambda.amazonaws.com
+            Action:
+              - sts:AssumeRole
+      Path: /
+      Policies:
+        -
+          PolicyName: root
+          PolicyDocument:
+            Version: 2012-10-17
+            Statement:
+              -
+                Effect: Allow
+                Action:
+                  - dynamodb:GetRecords
+                  - dynamodb:GetShardIterator
+                  - dynamodb:DescribeStream
+                  - dynamodb:ListStreams
+                  - dynamodb:DeleteItem
+                  - dynamodb:GetItem
+                  - dynamodb:Query
+                  - dynamodb:PutItem
+                  - dynamodb:Scan
+                  - dynamodb:UpdateItem
+                  - logs:CreateLogGroup
+                  - logs:CreateLogStream
+                  - logs:PutLogEvents
+                Resource: "*"
+  RoleScaling:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: 2012-10-17
+        Statement:
+          -
+            Effect: Allow
+            Principal:
+              Service:
+                - application-autoscaling.amazonaws.com
+            Action:
+              - sts:AssumeRole
+      Path: /
+      Policies:
+        -
+          PolicyName: root
+          PolicyDocument:
+            Version: 2012-10-17
+            Statement:
+              -
+                Effect: Allow
+                Action:
+                  - dynamodb:DescribeTable
+                  - dynamodb:UpdateTable
+                  - cloudwatch:PutMetricAlarm
+                  - cloudwatch:DescribeAlarms
+                  - cloudwatch:GetMetricStatistics
+                  - cloudwatch:SetAlarmState
+                  - cloudwatch:DeleteAlarms
+                Resource: "*"
+  EventDynamoFollow:
+    Type: AWS::Lambda::EventSourceMapping
+    Properties:
+      BatchSize: 1
+      Enabled: true
+      EventSourceArn: !GetAtt DynamoFollow.StreamArn
+      FunctionName: !GetAtt LambdaSyncFollow.Arn
+      StartingPosition: LATEST
+  EventDynamoPost:
+    Type: AWS::Lambda::EventSourceMapping
+    Properties:
+      BatchSize: 1
+      Enabled: true
+      EventSourceArn: !GetAtt DynamoPost.StreamArn
+      FunctionName: !GetAtt LambdaSyncPost.Arn
+      StartingPosition: LATEST
+  LambdaSyncFollow:
+    Type: AWS::Lambda::Function
+    Properties: 
+      Code:
+        S3Bucket: sgfaws-deploy
+        S3Key: dynamo-demo.zip
+      Description: Updates the DynamoDB user table for follwoing/follower counts
+      FunctionName: sgfAwsUpdateUserFollow 
+      Handler: src/lambda.updateUserFollow
+      MemorySize: 128
+      Role: !GetAtt RoleLambda.Arn
+      Runtime: nodejs8.10
+      Timeout: 300
+  LambdaSyncPost:
+    Type: AWS::Lambda::Function
+    Properties: 
+      Code:
+        S3Bucket: sgfaws-deploy
+        S3Key: dynamo-demo.zip
+      Description: Updates the DynamoDB folowingPost table with new posts
+      FunctionName: sgfAwsUpdateUserFeed
+      Handler: src/lambda.updateUserFeed
+      MemorySize: 128
+      Role: !GetAtt RoleLambda.Arn
+      Runtime: nodejs8.10
+      Timeout: 300
+  DynamoPost:
+    Type: AWS::DynamoDB::Table
+    Properties:
+      AttributeDefinitions:
+        - 
+          AttributeName : id
+          AttributeType : S
+        - 
+          AttributeName : userId 
+          AttributeType : S
+        - 
+          AttributeName : createdAt 
+          AttributeType : N
+      KeySchema:
+        - 
+          AttributeName : id
+          KeyType : HASH
+      GlobalSecondaryIndexes:
+        -
+          IndexName: userId-createdAt-ix
+          KeySchema:
+            - 
+              AttributeName : userId
+              KeyType : HASH
+            - 
+              AttributeName : createdAt 
+              KeyType : RANGE
+          Projection:
+            ProjectionType: ALL
+          ProvisionedThroughput:
+            ReadCapacityUnits: 1
+            WriteCapacityUnits: 1
+      ProvisionedThroughput:
+        ReadCapacityUnits: 1
+        WriteCapacityUnits: 1
+      StreamSpecification:
+        StreamViewType: NEW_IMAGE
+      TableName: sgfaws_post 
+      TimeToLiveSpecification: 
+        AttributeName: ttl
+        Enabled: true
+  DynamoUserFeed:
+    Type: AWS::DynamoDB::Table
+    Properties:
+      AttributeDefinitions:
+        - 
+          AttributeName : userId
+          AttributeType : S
+        - 
+          AttributeName : createdAt
+          AttributeType : N
+      KeySchema:
+        - 
+          AttributeName : userId
+          KeyType : HASH
+        -
+          AttributeName : createdAt
+          KeyType : RANGE
+      ProvisionedThroughput:
+        ReadCapacityUnits: 1
+        WriteCapacityUnits: 1
+      TableName: sgfaws_user_feed
+  DynamoFollow:
+    Type: AWS::DynamoDB::Table
+    Properties:
+      AttributeDefinitions:
+        - 
+          AttributeName : followerUserId
+          AttributeType : S
+        - 
+          AttributeName : followingUserId
+          AttributeType : S
+      KeySchema:
+        - 
+          AttributeName : followingUserId
+          KeyType : HASH
+        - 
+          AttributeName : followerUserId
+          KeyType : RANGE
+      GlobalSecondaryIndexes:
+        -
+          IndexName: followerUserId-followingUserId-ix
+          KeySchema:
+            - 
+              AttributeName : followingUserId
+              KeyType : HASH
+            - 
+              AttributeName : followerUserId
+              KeyType : RANGE
+          Projection:
+            ProjectionType: ALL
+          ProvisionedThroughput:
+            ReadCapacityUnits: 1
+            WriteCapacityUnits: 1
+      ProvisionedThroughput:
+        ReadCapacityUnits: 1
+        WriteCapacityUnits: 1
+      StreamSpecification:
+        StreamViewType: NEW_AND_OLD_IMAGES
+      TableName: sgfaws_follow
+  DynamoUser:
+    Type: AWS::DynamoDB::Table
+    Properties:
+      AttributeDefinitions:
+        - 
+          AttributeName : id
+          AttributeType : S
+      KeySchema:
+        - 
+          AttributeName : id 
+          KeyType : HASH
+      ProvisionedThroughput:
+        ReadCapacityUnits: 1
+        WriteCapacityUnits: 1
+      TableName: sgfaws_user
+  PostReadCapacityScalableTarget:
+    Type: AWS::ApplicationAutoScaling::ScalableTarget
+    Properties:
+      MaxCapacity: 2
+      MinCapacity: 1
+      ResourceId: !Join
+        - /
+        - - table
+          - !Ref DynamoPost
+      RoleARN: !GetAtt RoleScaling.Arn
+      ScalableDimension: dynamodb:table:ReadCapacityUnits
+      ServiceNamespace: dynamodb
+  PostReadScalingPolicy:
+    Type: AWS::ApplicationAutoScaling::ScalingPolicy
+    Properties:
+      PolicyName: PostReadAutoScalingPolicy
+      PolicyType: TargetTrackingScaling
+      ScalingTargetId: !Ref PostReadCapacityScalableTarget
+      TargetTrackingScalingPolicyConfiguration:
+        TargetValue: 50.0
+        ScaleInCooldown: 60
+        ScaleOutCooldown: 60
+        PredefinedMetricSpecification:
+          PredefinedMetricType: DynamoDBReadCapacityUtilization
+  PostWriteCapacityScalableTarget:
+    Type: AWS::ApplicationAutoScaling::ScalableTarget
+    Properties:
+      MaxCapacity: 2
+      MinCapacity: 1
+      ResourceId: !Join
+        - /
+        - - table
+          - !Ref DynamoPost
+      RoleARN: !GetAtt RoleScaling.Arn
+      ScalableDimension: dynamodb:table:WriteCapacityUnits
+      ServiceNamespace: dynamodb
+  PostWriteScalingPolicy:
+    Type: AWS::ApplicationAutoScaling::ScalingPolicy
+    Properties:
+      PolicyName: PostWriteAutoScalingPolicy
+      PolicyType: TargetTrackingScaling
+      ScalingTargetId: !Ref PostWriteCapacityScalableTarget
+      TargetTrackingScalingPolicyConfiguration:
+        TargetValue: 50.0
+        ScaleInCooldown: 60
+        ScaleOutCooldown: 60
+        PredefinedMetricSpecification:
+          PredefinedMetricType: DynamoDBWriteCapacityUtilization
+  UserFeedReadCapacityScalableTarget:
+    Type: AWS::ApplicationAutoScaling::ScalableTarget
+    Properties:
+      MaxCapacity: 2
+      MinCapacity: 1
+      ResourceId: !Join
+        - /
+        - - table
+          - !Ref DynamoUserFeed
+      RoleARN: !GetAtt RoleScaling.Arn
+      ScalableDimension: dynamodb:table:ReadCapacityUnits
+      ServiceNamespace: dynamodb
+  UserFeedReadScalingPolicy:
+    Type: AWS::ApplicationAutoScaling::ScalingPolicy
+    Properties:
+      PolicyName: UserFeedReadAutoScalingPolicy
+      PolicyType: TargetTrackingScaling
+      ScalingTargetId: !Ref UserFeedReadCapacityScalableTarget
+      TargetTrackingScalingPolicyConfiguration:
+        TargetValue: 50.0
+        ScaleInCooldown: 60
+        ScaleOutCooldown: 60
+        PredefinedMetricSpecification:
+          PredefinedMetricType: DynamoDBReadCapacityUtilization
+  UserFeedWriteCapacityScalableTarget:
+    Type: AWS::ApplicationAutoScaling::ScalableTarget
+    Properties:
+      MaxCapacity: 2
+      MinCapacity: 1
+      ResourceId: !Join
+        - /
+        - - table
+          - !Ref DynamoUserFeed
+      RoleARN: !GetAtt RoleScaling.Arn
+      ScalableDimension: dynamodb:table:WriteCapacityUnits
+      ServiceNamespace: dynamodb
+  UserFeedWriteScalingPolicy:
+    Type: AWS::ApplicationAutoScaling::ScalingPolicy
+    Properties:
+      PolicyName: UserFeedWriteAutoScalingPolicy
+      PolicyType: TargetTrackingScaling
+      ScalingTargetId: !Ref UserFeedWriteCapacityScalableTarget
+      TargetTrackingScalingPolicyConfiguration:
+        TargetValue: 50.0
+        ScaleInCooldown: 60
+        ScaleOutCooldown: 60
+        PredefinedMetricSpecification:
+          PredefinedMetricType: DynamoDBWriteCapacityUtilization
+  FollowReadCapacityScalableTarget:
+    Type: AWS::ApplicationAutoScaling::ScalableTarget
+    Properties:
+      MaxCapacity: 2
+      MinCapacity: 1
+      ResourceId: !Join
+        - /
+        - - table
+          - !Ref DynamoFollow
+      RoleARN: !GetAtt RoleScaling.Arn
+      ScalableDimension: dynamodb:table:ReadCapacityUnits
+      ServiceNamespace: dynamodb
+  FollowReadScalingPolicy:
+    Type: AWS::ApplicationAutoScaling::ScalingPolicy
+    Properties:
+      PolicyName: FollowReadAutoScalingPolicy
+      PolicyType: TargetTrackingScaling
+      ScalingTargetId: !Ref FollowReadCapacityScalableTarget
+      TargetTrackingScalingPolicyConfiguration:
+        TargetValue: 50.0
+        ScaleInCooldown: 60
+        ScaleOutCooldown: 60
+        PredefinedMetricSpecification:
+          PredefinedMetricType: DynamoDBReadCapacityUtilization
+  FollowWriteCapacityScalableTarget:
+    Type: AWS::ApplicationAutoScaling::ScalableTarget
+    Properties:
+      MaxCapacity: 2
+      MinCapacity: 1
+      ResourceId: !Join
+        - /
+        - - table
+          - !Ref DynamoFollow
+      RoleARN: !GetAtt RoleScaling.Arn
+      ScalableDimension: dynamodb:table:WriteCapacityUnits
+      ServiceNamespace: dynamodb
+  FollowWriteScalingPolicy:
+    Type: AWS::ApplicationAutoScaling::ScalingPolicy
+    Properties:
+      PolicyName: FollowWriteAutoScalingPolicy
+      PolicyType: TargetTrackingScaling
+      ScalingTargetId: !Ref FollowWriteCapacityScalableTarget
+      TargetTrackingScalingPolicyConfiguration:
+        TargetValue: 50.0
+        ScaleInCooldown: 60
+        ScaleOutCooldown: 60
+        PredefinedMetricSpecification:
+          PredefinedMetricType: DynamoDBWriteCapacityUtilization
+  UserReadCapacityScalableTarget:
+    Type: AWS::ApplicationAutoScaling::ScalableTarget
+    Properties:
+      MaxCapacity: 2
+      MinCapacity: 1
+      ResourceId: !Join
+        - /
+        - - table
+          - !Ref DynamoUser
+      RoleARN: !GetAtt RoleScaling.Arn
+      ScalableDimension: dynamodb:table:ReadCapacityUnits
+      ServiceNamespace: dynamodb
+  UserReadScalingPolicy:
+    Type: AWS::ApplicationAutoScaling::ScalingPolicy
+    Properties:
+      PolicyName: UserReadAutoScalingPolicy
+      PolicyType: TargetTrackingScaling
+      ScalingTargetId: !Ref UserReadCapacityScalableTarget
+      TargetTrackingScalingPolicyConfiguration:
+        TargetValue: 50.0
+        ScaleInCooldown: 60
+        ScaleOutCooldown: 60
+        PredefinedMetricSpecification:
+          PredefinedMetricType: DynamoDBReadCapacityUtilization
+  UserWriteCapacityScalableTarget:
+    Type: AWS::ApplicationAutoScaling::ScalableTarget
+    Properties:
+      MaxCapacity: 2
+      MinCapacity: 1
+      ResourceId: !Join
+        - /
+        - - table
+          - !Ref DynamoUser
+      RoleARN: !GetAtt RoleScaling.Arn
+      ScalableDimension: dynamodb:table:WriteCapacityUnits
+      ServiceNamespace: dynamodb
+  UserWriteScalingPolicy:
+    Type: AWS::ApplicationAutoScaling::ScalingPolicy
+    Properties:
+      PolicyName: UserWriteAutoScalingPolicy
+      PolicyType: TargetTrackingScaling
+      ScalingTargetId: !Ref UserWriteCapacityScalableTarget
+      TargetTrackingScalingPolicyConfiguration:
+        TargetValue: 50.0
+        ScaleInCooldown: 60
+        ScaleOutCooldown: 60
+        PredefinedMetricSpecification:
+          PredefinedMetricType: DynamoDBWriteCapacityUtilization
